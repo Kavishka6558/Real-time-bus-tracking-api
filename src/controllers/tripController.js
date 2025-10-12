@@ -1,13 +1,46 @@
 import { Trip, Route, Bus } from '../models/index.js';
+import { Op } from 'sequelize';
 
 // Get all trips with optional filters
 export const getTrips = async (req, res) => {
   try {
-    const { routeId, busId, date, page = 1, limit = 10 } = req.query;
+    const {
+      routeId,
+      busId,
+      date,
+      dateFrom,
+      dateTo,
+      status,
+      departureTimeFrom,
+      departureTimeTo,
+      page = 1,
+      limit = 10,
+      sortBy = 'departureTime',
+      sortOrder = 'ASC'
+    } = req.query;
+
     const where = {};
+
+    // Basic filters
     if (routeId) where.routeId = routeId;
     if (busId) where.busId = busId;
-    if (date) where.date = date;
+    if (status) where.status = status;
+
+    // Date filters
+    if (date) {
+      where.date = date;
+    } else if (dateFrom || dateTo) {
+      where.date = {};
+      if (dateFrom) where.date[Op.gte] = dateFrom;
+      if (dateTo) where.date[Op.lte] = dateTo;
+    }
+
+    // Time range filters
+    if (departureTimeFrom || departureTimeTo) {
+      where.departureTime = {};
+      if (departureTimeFrom) where.departureTime[Op.gte] = departureTimeFrom;
+      if (departureTimeTo) where.departureTime[Op.lte] = departureTimeTo;
+    }
 
     const trips = await Trip.findAll({
       where,
@@ -17,14 +50,24 @@ export const getTrips = async (req, res) => {
       ],
       limit: parseInt(limit),
       offset: (page - 1) * limit,
-      order: [['departureTime', 'ASC']],
+      order: [[sortBy, sortOrder.toUpperCase()]],
     });
 
     const count = await Trip.count({ where });
     res.json({
       trips,
       totalPages: Math.ceil(count / limit),
-      currentPage: page,
+      currentPage: parseInt(page),
+      totalCount: count,
+      filters: {
+        applied: Object.keys(where).length > 0,
+        routeId,
+        busId,
+        date,
+        dateRange: dateFrom || dateTo ? { from: dateFrom, to: dateTo } : null,
+        status,
+        timeRange: departureTimeFrom || departureTimeTo ? { from: departureTimeFrom, to: departureTimeTo } : null
+      }
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

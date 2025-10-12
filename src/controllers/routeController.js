@@ -1,19 +1,65 @@
 import { Route, Trip, Bus } from '../models/index.js';
+import { Op } from 'sequelize';
 
 // Get all routes with pagination
 export const getRoutes = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const {
+      origin,
+      destination,
+      distanceMin,
+      distanceMax,
+      durationMin,
+      durationMax,
+      code,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = req.query;
+
+    const where = {};
+
+    // Location filters
+    if (origin) where.origin = { [Op.iLike]: `%${origin}%` };
+    if (destination) where.destination = { [Op.iLike]: `%${destination}%` };
+    if (code) where.code = { [Op.iLike]: `%${code}%` };
+
+    // Distance range filter
+    if (distanceMin || distanceMax) {
+      where.distanceKm = {};
+      if (distanceMin) where.distanceKm[Op.gte] = parseInt(distanceMin);
+      if (distanceMax) where.distanceKm[Op.lte] = parseInt(distanceMax);
+    }
+
+    // Duration range filter
+    if (durationMin || durationMax) {
+      where.estimatedDurationMin = {};
+      if (durationMin) where.estimatedDurationMin[Op.gte] = parseInt(durationMin);
+      if (durationMax) where.estimatedDurationMin[Op.lte] = parseInt(durationMax);
+    }
+
     const routes = await Route.findAll({
+      where,
       limit: parseInt(limit),
       offset: (page - 1) * limit,
+      order: [[sortBy, sortOrder.toUpperCase()]],
     });
 
-    const count = await Route.count();
+    const count = await Route.count({ where });
     res.json({
       routes,
       totalPages: Math.ceil(count / limit),
-      currentPage: page,
+      currentPage: parseInt(page),
+      totalCount: count,
+      filters: {
+        applied: Object.keys(where).length > 0,
+        origin,
+        destination,
+        code,
+        distanceRange: distanceMin || distanceMax ? { min: distanceMin, max: distanceMax } : null,
+        durationRange: durationMin || durationMax ? { min: durationMin, max: durationMax } : null
+      }
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
