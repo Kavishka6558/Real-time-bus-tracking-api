@@ -1,25 +1,65 @@
 import { Bus, Route } from '../models/index.js';
+import { Op } from 'sequelize';
 
 // Get all buses with optional filters
 export const getBuses = async (req, res) => {
   try {
-    const { routeId, status, page = 1, limit = 10 } = req.query;
+    const {
+      routeId,
+      status,
+      operatorName,
+      capacityMin,
+      capacityMax,
+      hasLocation,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = req.query;
+
     const where = {};
+
+    // Basic filters
     if (routeId) where.routeId = routeId;
     if (status) where.status = status;
+    if (operatorName) where.operatorName = { [Op.iLike]: `%${operatorName}%` };
+
+    // Capacity range filter
+    if (capacityMin || capacityMax) {
+      where.capacity = {};
+      if (capacityMin) where.capacity[Op.gte] = parseInt(capacityMin);
+      if (capacityMax) where.capacity[Op.lte] = parseInt(capacityMax);
+    }
+
+    // Location filter
+    if (hasLocation === 'true') {
+      where.currentLocation = { [Op.ne]: null };
+    } else if (hasLocation === 'false') {
+      where.currentLocation = null;
+    }
 
     const buses = await Bus.findAll({
       where,
       include: [{ model: Route, as: 'Route' }],
       limit: parseInt(limit),
       offset: (page - 1) * limit,
+      order: [[sortBy, sortOrder.toUpperCase()]],
     });
 
     const count = await Bus.count({ where });
     res.json({
       buses,
       totalPages: Math.ceil(count / limit),
-      currentPage: page,
+      currentPage: parseInt(page),
+      totalCount: count,
+      filters: {
+        applied: Object.keys(where).length > 0,
+        routeId,
+        status,
+        operatorName,
+        capacityRange: capacityMin || capacityMax ? { min: capacityMin, max: capacityMax } : null,
+        hasLocation
+      }
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
